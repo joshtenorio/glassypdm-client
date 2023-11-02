@@ -66,3 +66,9 @@ export interface HistoryLoaderProps {
 export interface PermissionDashboardProps {
   level: number;
 }
+
+export interface DownloadInfo {
+  path: string; // path to download to
+  url: string; // presigned url
+  key: string; // s3 key
+}

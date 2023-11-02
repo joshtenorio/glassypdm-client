@@ -8,7 +8,7 @@ import { DownloadLoaderProps, columns } from "../components/FileColumn";
 import { Progress } from "../components/ui/progress";
 import { invoke } from "@tauri-apps/api/tauri";
 import { resolve, appLocalDataDir, BaseDirectory } from "@tauri-apps/api/path";
-import { CADFile, DownloadFile, LocalCADFile } from "@/lib/types";
+import { CADFile, DownloadFile, DownloadInfo, LocalCADFile } from "@/lib/types";
 import { readTextFile } from "@tauri-apps/api/fs";
 import { Store } from "tauri-plugin-store-api";
 import { useToast } from "@/components/ui/use-toast";
@@ -50,39 +50,47 @@ export function DownloadPage(props: DownloadPageProps) {
     }
 
     // download files
-    console.log(selectedDownload);
     const length = selectedDownload.length;
+    const fileList: string[] = [];
     for (let i = 0; i < length; i++) {
       const file: DownloadFile = selectedDownload[i];
-      if (file.size != 0) {
-        const key: string = file.path.replaceAll("\\", "|");
-        console.log(key);
+      fileList.push(file.path);
+    }
 
-        // get s3 url
-        const response = await fetch(serverUrl + "/download/file/" + key);
-        const data = await response.json();
-        const s3Url = data["s3Url"];
-        const s3Key = data["key"];
-        console.log(s3Url);
-        console.log(s3Key);
+    const response: Response = await fetch(serverUrl + "/download/files", {
+      method: "POST",
+      mode: "cors",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        files: fileList,
+      }),
+    });
 
-        // save key in store
-        await store.set(key, { value: s3Key });
+    const jsonResponse = await response.json();
+    const urlList: DownloadInfo[] = jsonResponse["urlList"];
+    // download or delete files
+    for (let i = 0; i < urlList.length; i++) {
+      if (urlList[i].url === "delete") {
+        // delete file
+        await invoke("delete_file", { file: urlList[i].path });
+      } else {
+        // download file
+        await store.set(urlList[i].path.replaceAll("\\", "|"), {
+          value: urlList[i].key,
+        });
 
-        // have rust backend download the file
         await invoke("download_s3_file", {
           link: {
-            path: file.path,
-            url: s3Url,
-            key: s3Key,
+            path: urlList[i].path,
+            url: urlList[i].url,
+            key: urlList[i].key,
           },
         });
-      } else {
-        console.log("deleting file " + file.path);
-        await invoke("delete_file", { file: file.path });
       }
       // handle progress bar
-      setProgress((100 * (i + 1)) / length);
+      setProgress((100 * (i + 1)) / urlList.length);
     }
 
     console.log("finish downloading");
